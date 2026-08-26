@@ -46,12 +46,23 @@ h1{font-size:clamp(24px,3.2vw,30px);font-weight:700;line-height:1.15;
 .pick{padding:20px 0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .pick-label{font:500 10.5px/1 var(--mono);letter-spacing:.12em;
   text-transform:uppercase;color:var(--fg-3)}
-.pick select{height:40px;padding:0 32px 0 12px;background:var(--surface);
-  border:1px solid var(--rule);color:var(--fg);font:400 14px/1 var(--body);
-  appearance:none;cursor:pointer;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237a7068'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 10px center}
-.pick select:focus{outline:2px solid var(--copper);outline-offset:-2px}
+
+/* custom model picker */
+.model-pick{position:relative;display:inline-block}
+.mp-btn{display:flex;align-items:center;gap:10px;height:44px;padding:0 38px 0 14px;
+  background:var(--surface);border:1px solid var(--rule);color:var(--fg);
+  font:500 15px/1 var(--body);cursor:pointer;min-width:240px;text-align:left;
+  position:relative}
+.mp-btn::after{content:'▾';position:absolute;right:12px;color:var(--fg-4);font-size:13px}
+.mp-btn:focus{outline:2px solid var(--copper);outline-offset:-2px}
+.mp-list{display:none;position:absolute;top:100%;left:0;right:0;z-index:10;
+  list-style:none;background:var(--bg);border:1px solid var(--rule);border-top:0;
+  max-height:300px;overflow-y:auto}
+.model-pick[data-open] .mp-list{display:block}
+.mp-list li{padding:11px 14px;cursor:pointer;font:400 14px/1.3 var(--body);
+  border-bottom:1px solid var(--rule-dim)}
+.mp-list li:hover{background:var(--surface)}
+.mp-list li[aria-selected="true"]{background:var(--panel);font-weight:600;color:var(--copper)}
 
 /* ── leaderboard ──────────────────────────── */
 .board{margin:0}
@@ -127,7 +138,10 @@ h1{font-size:clamp(24px,3.2vw,30px);font-weight:700;line-height:1.15;
 
 <div class="pick">
   <span class="pick-label">Model</span>
-  <select id="model"></select>
+  <div class="model-pick" id="modelPick">
+    <button type="button" class="mp-btn" id="model" aria-haspopup="listbox" aria-expanded="false"></button>
+    <ul class="mp-list" id="modelList" role="listbox"></ul>
+  </div>
 </div>
 
 <div class="board" id="board"></div>
@@ -191,20 +205,49 @@ const DATA = {
   ]
 };
 
-const sel=document.getElementById("model");
+const btn=document.getElementById("model");
+const list=document.getElementById("modelList");
+const pick=document.getElementById("modelPick");
 const board=document.getElementById("board");
 let explored=false;
+let currentModel="GPT-5.6 Sol";
 
-Object.keys(DATA).forEach((m,i)=>{
-  const o=document.createElement("option");
-  o.value=m; o.textContent=m;
-  sel.appendChild(o);
+const modelOrder=["GPT-5.6 Sol","GPT OSS 120B","Gemma 4 31B","Llama 3.1 8B","Nemotron 3.5 Lightning","MiniMax M2.7","Llama 3.3 70B"];
+
+function paintPicker(){
+  btn.textContent=currentModel;
+  [...list.children].forEach(li=>{
+    li.setAttribute("aria-selected",String(li.dataset.model===currentModel));
+  });
+}
+
+modelOrder.forEach(m=>{
+  const li=document.createElement("li");
+  li.setAttribute("role","option");
+  li.dataset.model=m;
+  li.textContent=m;
+  li.addEventListener("click",()=>{
+    currentModel=m;
+    delete pick.dataset.open;
+    btn.setAttribute("aria-expanded","false");
+    if(!explored){explored=true;if(window.plausible)plausible("explored");}
+    paintPicker();
+    render();
+  });
+  list.appendChild(li);
 });
+paintPicker();
+
+btn.addEventListener("click",(e)=>{
+  e.stopPropagation();
+  if(pick.dataset.open){delete pick.dataset.open;btn.setAttribute("aria-expanded","false");}
+  else{pick.dataset.open="true";btn.setAttribute("aria-expanded","true");}
+});
+document.addEventListener("click",()=>{delete pick.dataset.open;btn.setAttribute("aria-expanded","false");});
 
 function render(){
-  const model=sel.value;
-  const rows=[...DATA[model]].sort((a,b)=>b.speed-a.speed);
-  const max=rows[0].speed;
+  const model=currentModel;
+  const rows=[...DATA[model]];
 
   board.innerHTML="";
   // entries with speed first (sorted), then null-speed entries at bottom
@@ -238,14 +281,10 @@ function render(){
   });
 }
 
-sel.addEventListener("change",()=>{
-  if(!explored){explored=true;if(window.plausible)plausible("explored");}
-  render();
-});
 render();
 
 document.getElementById("trackCta").addEventListener("click",()=>{
-  if(window.plausible)plausible("newsletter_click",{props:{model:sel.value}});
+  if(window.plausible)plausible("newsletter_click",{props:{model:currentModel}});
 });
 </script>
 </body>
