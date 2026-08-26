@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Which inference chip is fastest right now?</title>
-<meta name="description" content="AI inference speed leaderboard. One number per chip, sorted by output tokens per second. Updated August 2026.">
+<title>Which inference chip is fastest? Jalapeño, Cerebras, Groq — compared</title>
+<meta name="description" content="AI inference speed leaderboard. Cerebras, Groq, NVIDIA Groq 3 LPX, OpenAI Jalapeño, and more. One number per chip, sorted by output tokens per second.">
 <script async src="https://plausible.io/js/pa-C17e57ZyQgLTSK1-cNVQS.js"></script>
 <script>
   window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
@@ -74,6 +74,7 @@ h1{font-size:clamp(24px,3.2vw,30px);font-weight:700;line-height:1.15;
 .speed-num{font:700 20px/1 var(--mono);color:var(--fg)}
 .speed-unit{font:400 11px/1 var(--mono);color:var(--fg-4);margin-top:2px}
 .entry.gold .speed-num{color:var(--copper)}
+.entry.pending{opacity:.7;border-left:3px solid var(--copper);border-bottom:1px solid var(--rule-dim)}
 
 /* bar behind entry */
 .entry{position:relative;overflow:hidden}
@@ -171,6 +172,7 @@ const DATA = {
     {name:"Groq",speed:633,hw:"LPU (Language Processing Unit)",src:"measured",article:null}
   ],
   "GPT-5.6 Sol": [
+    {name:"OpenAI Jalapeño",speed:null,hw:"Custom ASIC, co-designed with Broadcom · 700W · 1.5–1.9× more work per watt vs GPU",src:"announced",article:"https://blog.toolsnetwork.ai/releases/nvidia-groq-3-lpx-production/",note:"Not yet available. Speed TBD — only power efficiency published so far."},
     {name:"Cerebras Ultrafast",speed:750,hw:"WSE-3T wafer-scale chip",src:"announced",article:null},
     {name:"OpenAI API",speed:90,hw:"Azure GPU cluster",src:"measured",article:null}
   ],
@@ -205,23 +207,32 @@ function render(){
   const max=rows[0].speed;
 
   board.innerHTML="";
-  rows.forEach((r,i)=>{
-    const pct=((r.speed/max)*100).toFixed(1);
+  // entries with speed first (sorted), then null-speed entries at bottom
+  const withSpeed=rows.filter(r=>r.speed!==null).sort((a,b)=>b.speed-a.speed);
+  const noSpeed=rows.filter(r=>r.speed===null);
+  const sorted=[...withSpeed,...noSpeed];
+  const max=withSpeed.length?withSpeed[0].speed:1;
+
+  sorted.forEach((r,i)=>{
+    const hasSpeed=r.speed!==null;
+    const pct=hasSpeed?((r.speed/max)*100).toFixed(1):"0";
     const srcTag=`<span class="tag ${r.src==='measured'?'measured':''}">${r.src}</span>`;
     const link=r.article?` · <a href="${r.article}" target="_blank" rel="noopener">read more</a>`:"";
+    const noteHtml=r.note?`<div class="info-detail" style="color:var(--copper);margin-top:4px">${r.note}</div>`:"";
 
     const div=document.createElement("div");
-    div.className="entry"+(i===0?" gold":"");
+    div.className="entry"+(i===0&&hasSpeed?" gold":"")+(hasSpeed?"":" pending");
     div.innerHTML=`
       <div class="bar" style="width:${pct}%"></div>
-      <div class="rank">${i+1}</div>
+      <div class="rank">${hasSpeed?i+1:"—"}</div>
       <div class="info">
         <div class="info-name">${r.name}${srcTag}</div>
         <div class="info-detail">${r.hw}${link}</div>
+        ${noteHtml}
       </div>
       <div class="speed">
-        <div class="speed-num">${r.speed.toLocaleString()}</div>
-        <div class="speed-unit">tok/s</div>
+        <div class="speed-num">${hasSpeed?r.speed.toLocaleString():"TBD"}</div>
+        <div class="speed-unit">${hasSpeed?"tok/s":"no speed data yet"}</div>
       </div>`;
     board.appendChild(div);
   });
