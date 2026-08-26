@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenAI Jalapeño vs GPU — inference cost and speed comparison</title>
+<meta name="description" content="OpenAI’s Jalapeño chip claims 1.5–1.9× work per watt vs GPUs. Compare that announced figure against NVIDIA, Cerebras, Groq, and OpenAI’s own API — every number tagged measured, official, or announced.">
+<meta name="theme-color" content="#1a1614">
+<meta property="og:title" content="OpenAI Jalapeño vs GPU — inference cost and speed">
+<meta property="og:description" content="Work-per-watt is the only Jalapeño number OpenAI published. This bench refuses to invent the rest.">
+<meta property="og:type" content="website">
+<script async src="https://plausible.io/js/pa-C17e57ZyQgLTSK1-cNVQS.js"></script>
+<script>
+  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+  plausible.init()
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1a1614;
+    --bg-2: #211c19;
+    --bg-3: #2a2320;
+    --panel: #261f1b;
+    --ink: #ebe4dc;
+    --ink-2: #b7aaa0;
+    --ink-3: #8a7c72;
+    --ink-4: #6b5e54;
+    --line: #3d342f;
+    --line-2: #4a3f38;
+    --copper: #c87533;
+    --copper-2: #e09a55;
+    --copper-dim: rgba(200, 117, 51, 0.16);
+    --copper-line: rgba(200, 117, 51, 0.45);
+    --iron: #a89486;
+    --brass: #c4a574;
+    --focus: #e09a55;
+    --danger: #c45c3a;
+    --font-d: "Space Grotesk", sans-serif;
+    --font-m: "IBM Plex Mono", ui-monospace, monospace;
+    --ctrl-h: 44px;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: var(--font-d);
+    background:
+      radial-gradient(1200px 480px at 8% -10%, rgba(200, 117, 51, 0.07), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.55'/></svg>");
+  }
+
+  .skip {
+    position: absolute;
+    left: 12px;
+    top: -40px;
+    background: var(--copper);
+    color: var(--bg);
+    padding: 8px 12px;
+    z-index: 20;
+    font-weight: 600;
+  }
+  .skip:focus { top: 12px; }
+
+  a { color: var(--copper-2); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { color: var(--ink); }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  button {
+    font-family: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    width: min(1120px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 28px 0 80px;
+  }
+
+  /* Mast — lot ticket, not a marketing nav */
+  .mast {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 18px;
+    align-items: baseline;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .lot {
+    font-family: var(--font-m);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--copper);
+  }
+  .lot::after {
+    content: " ·";
+    color: var(--ink-4);
+    letter-spacing: 0;
+  }
+  .mast-name {
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .mast time {
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+  }
+
+  /* Claim: title left, numeral right — not a centred hero */
+  .claim {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) auto;
+    grid-template-areas:
+      "eye stat"
+      "title stat"
+      "lede stat";
+    column-gap: 36px;
+    row-gap: 0;
+    align-items: start;
+    padding: 36px 0 32px;
+    border-bottom: 1px solid var(--line);
+  }
+  .claim .eye { grid-area: eye; }
+  .claim h1 { grid-area: title; }
+  .claim .lede { grid-area: lede; }
+  .claim-stat { grid-area: stat; }
+  .eye {
+    margin: 0 0 14px;
+    font-family: var(--font-m);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--copper);
+  }
+  h1 {
+    margin: 0 0 16px;
+    font-size: clamp(34px, 5.2vw, 56px);
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    max-width: 14ch;
+  }
+  .lede {
+    margin: 0;
+    max-width: 52ch;
+    color: var(--ink-2);
+    font-size: 17px;
+    line-height: 1.5;
+  }
+  .claim-stat {
+    justify-self: end;
+    align-self: start;
+    text-align: right;
+    padding: 0;
+    min-width: 18ch;
+  }
+  .stat-num {
+    margin: 0;
+    font-size: clamp(52px, 7vw, 84px);
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    line-height: 0.92;
+    color: var(--copper-2);
+  }
+  .stat-num span {
+    font-size: 0.55em;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  .stat-lab {
+    margin: 10px 0 0;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .stat-sub, .stat-src {
+    margin: 4px 0 0;
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--ink-3);
+  }
+  .stat-src { color: var(--copper); }
+
+  /* Controls */
+  .dock {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 22px 40px;
+    padding: 28px 0 8px;
+  }
+  .dock-block { min-width: 0; }
+  .dock-lab {
+    display: block;
+    margin: 0 0 10px;
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .seg {
+    display: flex;
+    height: var(--ctrl-h);
+    background: var(--bg-2);
+    box-shadow: inset 0 0 0 1px var(--line-2);
+  }
+  .seg[hidden] { display: none; }
+  .seg button {
+    flex: 1;
+    height: 100%;
+    padding: 0 10px;
+    border-right: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    outline: 2px solid transparent;
+    outline-offset: -3px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-checked="true"] {
+    background: var(--copper);
+    color: #1f1814;
+  }
+  .seg button[aria-checked="true"] .sub { color: #5a3a1c; }
+  .seg button .sub {
+    display: block;
+    font-family: var(--font-m);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--ink-3);
+  }
+  .seg button[aria-checked="true"] .sub { color: var(--copper-2); }
+  .seg.wrap-seg {
+    flex-wrap: wrap;
+    height: auto;
+  }
+  .seg.wrap-seg button {
+    flex: 1 1 auto;
+    min-width: 132px;
+    height: var(--ctrl-h);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chips[hidden] { display: none; }
+  .chips button {
+    height: var(--ctrl-h);
+    padding: 0 14px;
+    border: 1px solid var(--line-2);
+    background: var(--bg-2);
+    color: var(--ink-2);
+    font-size: 13.5px;
+    font-weight: 500;
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .chips button[aria-checked="true"] {
+    background: var(--copper);
+    border-color: var(--copper);
+    color: #1f1814;
+  }
+
+  .readout {
+    margin: 6px 0 0;
+    min-height: 1.4em;
+    font-family: var(--font-m);
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  /* Bench + rail — 1.7 / 0.85, not equal */
+  .bench-wrap {
+    display: grid;
+    grid-template-columns: 1.7fr 0.85fr;
+    gap: 0 36px;
+    margin-top: 22px;
+    align-items: start;
+  }
+  .bench {
+    position: relative;
+    padding: 22px 0 8px;
+    border-top: 1px solid var(--copper-line);
+  }
+  .bench::before, .bench::after {
+    content: "";
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border-color: var(--copper);
+    border-style: solid;
+    pointer-events: none;
+  }
+  .bench::before { top: -1px; left: 0; border-width: 1px 0 0 1px; }
+  .bench::after { top: -1px; right: 0; border-width: 1px 1px 0 0; }
+  .bench-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .bench-head h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .bench-unit {
+    font-family: var(--font-m);
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  .warn {
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 13.5px;
+    line-height: 1.45;
+  }
+  .warn[hidden] { display: none; }
+
+  .rows { display: flex; flex-direction: column; gap: 14px; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(140px, 28%) 1fr;
+    gap: 12px 16px;
+    align-items: center;
+  }
+  .row.is-hot .name { color: var(--copper-2); }
+  .name {
+    margin: 0;
+    font-size: 14.5px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+  }
+  .meta {
+    margin: 3px 0 0;
+    font-family: var(--font-m);
+    font-size: 11.5px;
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+  .cap {
+    grid-column: 1 / -1;
+    margin: 4px 0 0;
+    font-family: var(--font-m);
+    font-size: 11px;
+    color: var(--copper);
+  }
+  .bar-side {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+  }
+  .track {
+    position: relative;
+    height: 18px;
+    background: var(--bg-3);
+    overflow: hidden;
+  }
+  .track.is-empty {
+    background: repeating-linear-gradient(
+      -45deg,
+      #2e2723,
+      #2e2723 5px,
+      #4a3f38 5px,
+      #4a3f38 6px
+    );
+  }
+  .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 100%;
+    height: 100%;
+    background: var(--iron);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .fill.hot {
+    background: var(--copper);
+  }
+  .fill.hatch {
+    background:
+      repeating-linear-gradient(
+        135deg,
+        var(--copper) 0 6px,
+        #a8642c 6px 8px
+      );
+  }
+  .fill.range-lo {
+    background: var(--copper);
+    opacity: 0.95;
+  }
+  .fill.range-hi {
+    background: var(--copper);
+    opacity: 0.35;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fill { transition: none; }
+  }
+  .val {
+    font-family: var(--font-m);
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 7.5ch;
+    text-align: right;
+    color: var(--ink);
+  }
+  .val .unit {
+    color: var(--ink-3);
+    font-weight: 400;
+    font-size: 10px;
+  }
+  .tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 6px;
+    border: 1px solid var(--line-2);
+    font-family: var(--font-m);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    vertical-align: 2px;
+  }
+  .tag.measured { color: #1f1814; background: var(--brass); border-color: var(--brass); }
+  .tag.official { color: var(--ink); border-color: var(--ink-3); }
+  .tag.announced { color: #1f1814; background: var(--copper); border-color: var(--copper); }
+  .tag.none { color: var(--ink-2); border-color: var(--ink-4); }
+
+  .rail {
+    padding: 22px 0 0;
+    border-top: 1px solid var(--line);
+  }
+  .stamp {
+    padding: 16px 16px 18px;
+    background: var(--bg-2);
+    border: 1px dashed var(--copper-line);
+  }
+  .stamp-k {
+    margin: 0 0 8px;
+    font-family: var(--font-m);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--copper);
+  }
+  .stamp h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+  .stamp p {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .legend {
+    margin-top: 22px;
+  }
+  .legend h3 {
+    margin: 0 0 10px;
+    font-family: var(--font-m);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .legend dl {
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .legend dt {
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brass);
+  }
+  .legend dt.official { color: var(--ink-2); }
+  .legend dt.announced { color: var(--copper); }
+  .legend dd {
+    margin: 2px 0 0;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+
+  .buy {
+    margin-top: 22px;
+  }
+  .buy h3 {
+    margin: 0 0 10px;
+    font-family: var(--font-m);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .buy ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .buy li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+  }
+  .buy li:last-child { border-bottom: 1px solid var(--line); }
+  .buy .yn {
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .buy .yn.no { color: var(--copper); }
+  .buy .yn.yes { color: var(--brass); }
+
+  /* Notes — wider caveats, narrower glossary */
+  .notes {
+    display: grid;
+    grid-template-columns: 1.55fr 0.8fr;
+    gap: 32px 48px;
+    margin-top: 48px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+  }
+  .notes h2 {
+    margin: 0 0 14px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .notes p {
+    margin: 0 0 12px;
+    color: var(--ink-2);
+    font-size: 14.5px;
+  }
+  .notes p:last-child { margin-bottom: 0; }
+  .notes ol {
+    margin: 0;
+    padding: 0 0 0 1.15em;
+    color: var(--ink-2);
+    font-size: 14.5px;
+  }
+  .notes li { margin: 0 0 10px; }
+  .notes li:last-child { margin-bottom: 0; }
+
+  aside.follow {
+    display: grid;
+    grid-template-columns: 1.6fr auto;
+    gap: 20px 32px;
+    align-items: center;
+    margin-top: 44px;
+    padding: 28px 24px;
+    background: var(--bg-3);
+    border: 1px solid var(--copper-line);
+  }
+  .follow-lead {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+  .follow-body {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: 15px;
+    max-width: 48ch;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--ctrl-h);
+    padding: 0 18px;
+    background: var(--copper);
+    color: #1f1814;
+    font-weight: 600;
+    font-size: 14.5px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .btn:hover { background: var(--copper-2); color: #1f1814; }
+
+  .sources {
+    margin-top: 36px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+  .sources h2 {
+    margin: 0 0 12px;
+    font-family: var(--font-m);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .sources ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .sources li {
+    display: grid;
+    grid-template-columns: 10.5ch 1fr;
+    gap: 10px 14px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .sources li:last-child { border-bottom: 1px solid var(--line); }
+  .sources .k {
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-right: 0;
+  }
+
+  footer.foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 28px;
+    padding-top: 16px;
+    font-family: var(--font-m);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--ink-4);
+  }
+  footer.foot a { color: var(--ink-3); }
+
+  @media (max-width: 860px) {
+    .wrap { width: min(1120px, calc(100% - 28px)); }
+    .claim {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "stat"
+        "eye"
+        "title"
+        "lede";
+    }
+    .dock, .bench-wrap, .notes, aside.follow {
+      grid-template-columns: 1fr;
+    }
+    .claim-stat {
+      justify-self: start;
+      text-align: left;
+      min-width: 0;
+      padding: 0 0 12px;
+    }
+    .mast { grid-template-columns: 1fr auto; }
+    .mast-name { display: none; }
+    .row { grid-template-columns: 1fr; gap: 6px; }
+    aside.follow { padding: 22px 18px; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#bench">Skip to comparison</a>
+<div class="wrap">
+
+<header class="mast">
+  <span class="lot">Bnch-06</span>
+  <span class="mast-name">Jalapeño inference bench</span>
+  <time datetime="2026-08-25">25 Aug 2026</time>
+</header>
+
+<section class="claim">
+  <p class="eye">Announced · not a service · first OpenAI inference chip</p>
+  <h1>Jalapeño vs GPU</h1>
+  <p class="lede">OpenAI published work-per-watt, not tokens-per-second. This bench puts that claim next to the speeds other chips and APIs have actually posted — and tags every figure <em>measured</em>, <em>official</em>, or <em>announced</em>.</p>
+  <div class="claim-stat">
+    <p class="stat-num">1.5–1.9<span>×</span></p>
+    <p class="stat-lab">work per watt vs GPUs</p>
+    <p class="stat-sub">700 W · co-designed with Broadcom</p>
+    <p class="stat-src">SemiAnalysis InferenceX · announced</p>
+  </div>
+</section>
+
+<section class="dock" aria-label="Comparison controls">
+  <div class="dock-block">
+    <span class="dock-lab" id="dim-lab">Dimension</span>
+    <div class="seg" id="dimSeg" role="radiogroup" aria-labelledby="dim-lab"></div>
+  </div>
+  <div class="dock-block">
+    <span class="dock-lab" id="src-lab">Source filter</span>
+    <div class="chips" id="srcChips" role="radiogroup" aria-labelledby="src-lab"></div>
+  </div>
+  <div class="dock-block" id="modelBlock">
+    <span class="dock-lab" id="model-lab">Model (speed only)</span>
+    <div class="chips" id="modelChips" role="radiogroup" aria-labelledby="model-lab"></div>
+  </div>
+  <p class="readout" id="readout" aria-live="polite"></p>
+</section>
+
+<div class="bench-wrap">
+  <section class="bench" id="bench">
+    <div class="bench-head">
+      <h2 id="benchTitle">Power efficiency</h2>
+      <span class="bench-unit" id="benchUnit">relative work / watt</span>
+    </div>
+    <p class="warn" id="warn" hidden></p>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <aside class="rail">
+    <div class="stamp">
+      <p class="stamp-k">Availability</p>
+      <h3>Jalapeño is not a service</h3>
+      <p>First custom inference chip from OpenAI, announced 25 Aug 2026, 700&nbsp;W, Broadcom. No API, no cloud SKU, no tok/s figure in the release.</p>
+    </div>
+    <div class="legend">
+      <h3>How to trust a number</h3>
+      <dl>
+        <dt class="measured">Measured</dt>
+        <dd>Artificial Analysis, live endpoint, standardised conditions.</dd>
+        <dt class="official">Official</dt>
+        <dd>Provider catalog or product page, under the vendor’s own setup.</dd>
+        <dt class="announced">Announced</dt>
+        <dd>Press release. Not independently verified. Jalapeño lives here.</dd>
+      </dl>
+    </div>
+    <div class="buy">
+      <h3>Can you buy inference on it</h3>
+      <ol>
+        <li>OpenAI Jalapeño <span class="yn no">No</span></li>
+        <li>NVIDIA H100 / H200 / B200 <span class="yn yes">Cloud GPU</span></li>
+        <li>NVIDIA Groq 3 LPX <span class="yn no">Chip only</span></li>
+        <li>Cerebras WSE-3 / Ultrafast <span class="yn yes">API</span></li>
+        <li>Groq LPU <span class="yn yes">API</span></li>
+        <li>OpenAI API <span class="yn yes">API</span></li>
+      </ol>
+    </div>
+  </aside>
+</div>
+
+<section class="notes">
+  <div>
+    <h2>How to read this</h2>
+    <ol>
+      <li>Jalapeño’s only published performance number is <strong>1.5–1.9× work per watt vs GPUs</strong> on SemiAnalysis InferenceX. There is no tok/s. This page does not invent one.</li>
+      <li>Speed bars are <strong>not apples-to-apples</strong> unless you pick a single model. Gemma 4 31B at 3,400 tok/s is a different job than GPT OSS 120B at 500.</li>
+      <li>Where a vendor and Artificial Analysis disagree (Cerebras WSE-3 on GPT OSS 120B: 3,000 official vs 1,715 measured), both are shown.</li>
+      <li>Cost here is <strong>implied energy for the same work</strong> from the announced multiplier — not an API price. OpenAI has not priced Jalapeño. No $/Mtok is fabricated.</li>
+    </ol>
+  </div>
+  <div>
+    <h2>What is missing</h2>
+    <p>H100, H200, and B200 have no single headline tok/s in this dataset. GPU throughput is model-, batch-, and stack-dependent. They appear as the GPU class OpenAI compared against, not as fake scores.</p>
+    <p>Cerebras, Groq, and Groq 3 LPX have no InferenceX work-per-watt figure in the Jalapeño release, so they stay blank on the power view.</p>
+  </div>
+</section>
+
+<aside class="follow">
+  <div>
+    <p class="follow-lead">The inference hardware race changes monthly. Track it.</p>
+    <p class="follow-body">New chips, new tok/s claims, new caveats. Follow the release log rather than a screenshot of this page.</p>
+  </div>
+  <a class="btn" id="trackCta" href="https://blog.toolsnetwork.ai" target="_blank" rel="noopener">Follow at BlogNetwork</a>
+</aside>
+
+<section class="sources">
+  <h2>Sources</h2>
+  <ul>
+    <li><span class="k">Announced</span><span>OpenAI Jalapeño — 1.5–1.9× work/watt vs GPUs, 700&nbsp;W, Broadcom, 25 Aug 2026. SemiAnalysis InferenceX, via OpenAI press release. Not a service.</span></li>
+    <li><span class="k">Announced</span><span>NVIDIA Groq 3 LPX — 3,400 tok/s on Gemma 4 31B. <a href="https://blog.toolsnetwork.ai/releases/nvidia-groq-3-lpx-production/" target="_blank" rel="noopener">NVIDIA Groq 3 LPX production note</a>.</span></li>
+    <li><span class="k">Official</span><span>Cerebras WSE-3 — GPT OSS 120B at 3,000 tok/s (provider page).</span></li>
+    <li><span class="k">Measured</span><span>Cerebras WSE-3 — GPT OSS 120B at 1,715 tok/s (Artificial Analysis).</span></li>
+    <li><span class="k">Official</span><span>Groq LPU — Llama 3.1 8B at 1,800 tok/s; GPT OSS 120B at 500 tok/s.</span></li>
+    <li><span class="k">Measured</span><span>OpenAI API — GPT-5.6 Sol at 90 tok/s (Artificial Analysis).</span></li>
+    <li><span class="k">Announced</span><span>Cerebras Ultrafast — GPT-5.6 Sol at 750 tok/s.</span></li>
+    <li><span class="k">Class</span><span>NVIDIA H100 / H200 / B200 — named as the GPU comparison class in the Jalapeño release. No per-chip tok/s in this dataset.</span></li>
+  </ul>
+</section>
+
+<footer class="foot">
+  <span>Every bar carries its source type. Announced ≠ measured.</span>
+  <a href="https://blog.toolsnetwork.ai" target="_blank" rel="noopener">Tracking new AI infrastructure at BlogNetwork</a>
+</footer>
+
+</div>
+
+<script>
+const SPEEDS = [
+  {
+    id: "groq3",
+    hardware: "NVIDIA Groq 3 LPX",
+    model: "Gemma 4 31B",
+    toks: 3400,
+    source: "announced",
+    cite: "NVIDIA press release",
+    article: "https://blog.toolsnetwork.ai/releases/nvidia-groq-3-lpx-production/",
+    available: "chip"
+  },
+  {
+    id: "cerebras-off",
+    hardware: "Cerebras WSE-3",
+    model: "GPT OSS 120B",
+    toks: 3000,
+    source: "official",
+    cite: "Cerebras product page",
+    article: null,
+    available: "api"
+  },
+  {
+    id: "cerebras-aa",
+    hardware: "Cerebras WSE-3",
+    model: "GPT OSS 120B",
+    toks: 1715,
+    source: "measured",
+    cite: "Artificial Analysis",
+    article: null,
+    available: "api"
+  },
+  {
+    id: "groq-8b",
+    hardware: "Groq LPU",
+    model: "Llama 3.1 8B",
+    toks: 1800,
+    source: "official",
+    cite: "Groq catalog",
+    article: null,
+    available: "api"
+  },
+  {
+    id: "groq-120b",
+    hardware: "Groq LPU",
+    model: "GPT OSS 120B",
+    toks: 500,
+    source: "official",
+    cite: "Groq catalog",
+    article: null,
+    available: "api"
+  },
+  {
+    id: "cerebras-uf",
+    hardware: "Cerebras Ultrafast",
+    model: "GPT-5.6 Sol",
+    toks: 750,
+    source: "announced",
+    cite: "Cerebras",
+    article: null,
+    available: "api"
+  },
+  {
+    id: "openai-api",
+    hardware: "OpenAI API",
+    model: "GPT-5.6 Sol",
+    toks: 90,
+    source: "measured",
+    cite: "Artificial Analysis",
+    article: null,
+    available: "api"
+  }
+];
+
+const EMPTY_SPEED = [
+  {
+    id: "jalapeno",
+    hardware: "OpenAI Jalapeño",
+    detail: "No tok/s in the press release",
+    hot: true,
+    source: "announced"
+  },
+  {
+    id: "gpus",
+    hardware: "NVIDIA H100 / H200 / B200",
+    detail: "No single-model headline tok/s in this dataset",
+    hot: false,
+    source: "none"
+  }
+];
+
+const POWER_ROWS = [
+  {
+    id: "jalapeno",
+    hardware: "OpenAI Jalapeño",
+    detail: "700 W · Broadcom · SemiAnalysis InferenceX",
+    hot: true,
+    source: "announced",
+    lo: 1.5,
+    hi: 1.9,
+    label: "1.5–1.9×"
+  },
+  {
+    id: "gpus",
+    hardware: "NVIDIA GPUs",
+    detail: "H100 · H200 · B200 — the class OpenAI compared against",
+    hot: false,
+    source: "official",
+    lo: 1,
+    hi: 1,
+    label: "1.0× baseline"
+  },
+  {
+    id: "groq3",
+    hardware: "NVIDIA Groq 3 LPX",
+    detail: "No InferenceX work/watt in the Jalapeño release",
+    hot: false,
+    source: "none"
+  },
+  {
+    id: "cerebras",
+    hardware: "Cerebras WSE-3",
+    detail: "No InferenceX work/watt in the Jalapeño release",
+    hot: false,
+    source: "none"
+  },
+  {
+    id: "groq",
+    hardware: "Groq LPU",
+    detail: "No InferenceX work/watt in the Jalapeño release",
+    hot: false,
+    source: "none"
+  }
+];
+
+const COST_ROWS = [
+  {
+    id: "jalapeno",
+    hardware: "OpenAI Jalapeño",
+    detail: "1 − 1÷(1.5–1.9) · electricity only, not capex or API price",
+    hot: true,
+    source: "announced",
+    lo: 1 - 1 / 1.5,
+    hi: 1 - 1 / 1.9,
+    label: "33–47% less"
+  },
+  {
+    id: "gpus",
+    hardware: "NVIDIA GPUs (H100 / H200 / B200)",
+    detail: "InferenceX baseline · same work, GPU energy = 0% saved",
+    hot: false,
+    source: "official",
+    lo: 0.02,
+    hi: 0.02,
+    label: "0% less"
+  }
+];
+
+const DIMS = [
+  { id: "power", label: "Power", sub: "work / watt" },
+  { id: "speed", label: "Speed", sub: "tok / s" },
+  { id: "cost",  label: "Cost",  sub: "energy / work" }
+];
+const SOURCES = ["all", "measured", "official", "announced"];
+const MODELS = ["GPT OSS 120B", "GPT-5.6 Sol", "Gemma 4 31B", "Llama 3.1 8B", "All published"];
+
+let dim = "power";
+let src = "all";
+let model = "GPT OSS 120B";
+let used = false;
+
+function el(id) { return document.getElementById(id); }
+
+function radioGroup(host, items, getId, getLabel, current, onPick, withSub) {
+  host.innerHTML = "";
+  items.forEach(item => {
+    const id = getId(item);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", String(id === current));
+    btn.innerHTML = withSub
+      ? getLabel(item) + "<span class='sub'>" + item.sub + "</span>"
+      : getLabel(item);
+    btn.addEventListener("click", () => onPick(id));
+    host.appendChild(btn);
+  });
+}
+
+function paintGroups() {
+  radioGroup(el("dimSeg"), DIMS, d => d.id, d => d.label, dim, id => {
+    dim = id; used = true; paintGroups(); render();
+  }, false);
+  radioGroup(el("srcChips"), SOURCES, s => s, s => s, src, id => {
+    src = id; used = true; paintGroups(); render();
+  }, false);
+  radioGroup(el("modelChips"), MODELS, s => s, s => s, model, id => {
+    model = id; used = true; paintGroups(); render();
+  }, false);
+  const showModels = dim === "speed";
+  el("modelBlock").hidden = !showModels;
+  el("modelChips").hidden = !showModels;
+}
+
+function srcOk(type) {
+  return src === "all" || type === src;
+}
+
+function tagHtml(type) {
+  if (type === "none") return "<span class='tag none'>no figure</span>";
+  return "<span class='tag " + type + "'>" + type + "</span>";
+}
+
+function sourceLine(row) {
+  if (row.article) {
+    return "<a href='" + row.article + "' target='_blank' rel='noopener'>" + row.cite + "</a>";
+  }
+  return row.cite || "";
+}
+
+function emptyRow(item) {
+  const row = document.createElement("div");
+  row.className = "row" + (item.hot ? " is-hot" : "");
+  row.innerHTML =
+    "<div>" +
+      "<p class='name'>" + item.hardware + " " + tagHtml(item.source) + "</p>" +
+      "<p class='meta'>" + item.detail + "</p>" +
+    "</div>" +
+    "<div class='bar-side'>" +
+      "<div class='track is-empty' aria-hidden='true'></div>" +
+      "<div class='val' style='color:var(--ink-3)'>no figure</div>" +
+    "</div>";
+  return row;
+}
+
+function barRow(opts) {
+  const row = document.createElement("div");
+  row.className = "row" + (opts.hot ? " is-hot" : "");
+  const fills = (opts.fills || []).map(f =>
+    "<div class='fill " + f.cls + "' data-x='" + f.x + "'></div>"
+  ).join("");
+  const cap = opts.caption ? "<p class='cap'>" + opts.caption + "</p>" : "";
+  row.innerHTML =
+    "<div>" +
+      "<p class='name'>" + opts.hardware + " " + tagHtml(opts.source) + "</p>" +
+      "<p class='meta'>" + opts.meta + "</p>" +
+    "</div>" +
+    "<div class='bar-side'>" +
+      "<div class='track'>" + fills + "</div>" +
+      "<div class='val'>" + opts.value + "</div>" +
+      cap +
+    "</div>";
+  return row;
+}
+
+function kick(node) {
+  node.querySelectorAll(".fill").forEach(f => {
+    const x = Number(f.getAttribute("data-x"));
+    f.style.transform = "scaleX(0)";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => { f.style.transform = "scaleX(" + x + ")"; });
+    });
+  });
+}
+
+function renderPower() {
+  el("benchTitle").textContent = "Power efficiency";
+  el("benchUnit").textContent = "relative work / watt vs GPU class";
+  el("warn").hidden = false;
+  el("warn").textContent = "Jalapeño’s figure is a range from a press release, not a measured tok/s/W. Other accelerators have no InferenceX number in that release, so they stay blank.";
+  const host = el("rows");
+  host.innerHTML = "";
+  const max = 2;
+  POWER_ROWS.forEach(r => {
+    if (r.lo == null) {
+      if (src !== "all" && r.source !== src && r.source !== "none") return;
+      host.appendChild(emptyRow(r));
+      return;
+    }
+    if (!srcOk(r.source) && !(src === "all")) {
+      host.appendChild(emptyRow({ ...r, detail: r.detail + " · filtered out" }));
+      return;
+    }
+    const node = barRow({
+      hardware: r.hardware,
+      source: r.source,
+      hot: r.hot,
+      meta: r.detail,
+      value: r.label + " <span class='unit'>work/W</span>",
+      caption: r.hi !== r.lo ? "Solid bar = 1.5× · hatch continues to 1.9×" : "",
+      fills: r.hi !== r.lo
+        ? [
+            { cls: "range-hi hatch", x: r.hi / max },
+            { cls: "range-lo", x: r.lo / max }
+          ]
+        : [{ cls: r.hot ? "hot" : "", x: r.lo / max }]
+    });
+    host.appendChild(node);
+    kick(node);
+  });
+}
+
+function renderSpeed() {
+  el("benchTitle").textContent = "Output speed";
+  el("benchUnit").textContent = "tokens / second";
+  const all = model === "All published";
+  el("warn").hidden = false;
+  el("warn").textContent = all
+    ? "These bars mix models. 3,400 tok/s on Gemma 4 31B is not comparable to 90 tok/s on GPT-5.6 Sol. Pick one model to compare hardware on the same job."
+    : "Jalapeño has no tok/s. NVIDIA GPUs have no single headline number here. Remaining bars are " + model + " only.";
+
+  const host = el("rows");
+  host.innerHTML = "";
+
+  EMPTY_SPEED.forEach(item => host.appendChild(emptyRow(item)));
+
+  let rows = SPEEDS.filter(s => srcOk(s.source));
+  if (!all) rows = rows.filter(s => s.model === model);
+  rows.sort((a, b) => b.toks - a.toks);
+
+  if (!rows.length) {
+    const miss = emptyRow({
+      hardware: "No rows for this filter",
+      detail: src === "all" ? "No published tok/s for " + model : "Nothing tagged " + src + " on " + model,
+      hot: false,
+      source: "none"
+    });
+    host.appendChild(miss);
+    return;
+  }
+
+  const max = Math.max(...rows.map(r => r.toks));
+  rows.forEach(r => {
+    const cite = sourceLine(r);
+    const node = barRow({
+      hardware: r.hardware,
+      source: r.source,
+      hot: false,
+      meta: r.model + " · " + cite,
+      value: r.toks.toLocaleString() + " <span class='unit'>tok/s</span>",
+      fills: [{ cls: "", x: r.toks / max }]
+    });
+    host.appendChild(node);
+    kick(node);
+  });
+}
+
+function renderCost() {
+  el("benchTitle").textContent = "Cost efficiency (electricity proxy)";
+  el("benchUnit").textContent = "energy saved vs GPU class for the same work";
+  el("warn").hidden = false;
+  el("warn").textContent = "Derived from the announced 1.5–1.9× work/watt. Longer bar = less energy for the same work. This is not an API price — Jalapeño is unpriced and not sold as inference.";
+  const host = el("rows");
+  host.innerHTML = "";
+  const costMax = 0.55;
+  COST_ROWS.forEach(r => {
+    if (!srcOk(r.source) && src !== "all") {
+      host.appendChild(emptyRow({ ...r, detail: "Filtered out by source type" }));
+      return;
+    }
+    const node = barRow({
+      hardware: r.hardware,
+      source: r.source,
+      hot: r.hot,
+      meta: r.detail,
+      value: r.label + " <span class='unit'>energy</span>",
+      caption: r.hi !== r.lo ? "From the announced 1.5–1.9× · not an API price" : "",
+      fills: r.hi !== r.lo
+        ? [
+            { cls: "range-hi hatch", x: r.hi / costMax },
+            { cls: "range-lo", x: r.lo / costMax }
+          ]
+        : [{ cls: r.hot ? "hot" : "", x: r.lo / costMax }]
+    });
+    host.appendChild(node);
+    kick(node);
+  });
+  ["NVIDIA Groq 3 LPX", "Cerebras WSE-3", "Groq LPU", "OpenAI API"].forEach(name => {
+    host.appendChild(emptyRow({
+      hardware: name,
+      detail: "No work/watt in the Jalapeño release — cannot derive energy cost",
+      hot: false,
+      source: "none"
+    }));
+  });
+}
+
+function render() {
+  const note = {
+    power: "Showing the only Jalapeño number OpenAI published.",
+    speed: model === "All published"
+      ? "Showing every published tok/s. Models differ."
+      : "Showing " + model + " · Jalapeño has no tok/s.",
+    cost: "Electricity proxy only. No $/Mtok on this page."
+  }[dim];
+  el("readout").textContent = note + (src === "all" ? "" : " · filter: " + src);
+
+  if (dim === "power") renderPower();
+  else if (dim === "speed") renderSpeed();
+  else renderCost();
+}
+
+el("dimSeg").addEventListener("keydown", e => {
+  const ids = DIMS.map(d => d.id);
+  const i = ids.indexOf(dim);
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault();
+    dim = ids[Math.min(ids.length - 1, i + 1)];
+    used = true; paintGroups(); render();
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault();
+    dim = ids[Math.max(0, i - 1)];
+    used = true; paintGroups(); render();
+  }
+});
+
+el("trackCta").addEventListener("click", () => {
+  if (window.plausible) {
+    plausible("newsletter_click", { props: { used_tool: used ? "yes" : "no", dimension: dim } });
+  }
+});
+
+paintGroups();
+render();
+</script>
+</body>
+</html>
